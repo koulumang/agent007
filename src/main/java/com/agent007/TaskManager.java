@@ -143,7 +143,8 @@ public class TaskManager {
 
     public List<Reminder> getPendingReminders() {
         List<Reminder> reminders = new ArrayList<>();
-        String sql = "SELECT id, chat_id, message FROM reminders WHERE sent = 0 AND remind_at <= datetime('now') ORDER BY remind_at";
+        // Only get reminders due in the last 60 seconds to avoid sending old reminders on startup
+        String sql = "SELECT id, chat_id, message FROM reminders WHERE sent = 0 AND remind_at <= datetime('now') AND remind_at >= datetime('now', '-60 seconds') ORDER BY remind_at";
         
         try (Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
