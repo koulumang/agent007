@@ -16,33 +16,27 @@ public class Main {
             TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
             Agent007Bot bot = new Agent007Bot(botToken);
             botsApi.registerBot(bot);
-            
-            // Start reminder scheduler
+
             ReminderScheduler reminderScheduler = new ReminderScheduler(bot.getTaskManager(), bot);
             reminderScheduler.start();
-            
-            // Start weather scheduler
+
             WeatherScheduler weatherScheduler = new WeatherScheduler(
-                bot.getWeatherService(), 
-                bot.getUserPrefs(), 
-                bot,
-                bot.getOllama()
-            );
+                    bot.getWeatherService(), bot.getUserPrefs(), bot, bot.getOllama());
             weatherScheduler.start();
-            
-            // Start stock scheduler
+
             StockScheduler stockScheduler = new StockScheduler(
-                bot.getStockService(),
-                bot.getTaskManager(),
-                bot.getUserPrefs(),
-                bot
-            );
+                    bot.getStockService(), bot.getTaskManager(), bot.getUserPrefs(), bot);
             stockScheduler.start();
-            
+
+            DigestScheduler digestScheduler = new DigestScheduler(
+                    bot.getCommandHandler(), bot.getUserPrefs(), bot);
+            digestScheduler.start();
+
             System.out.println("Agent007 is online!");
-            System.out.println("✅ Reminder scheduler started - checking every 30 seconds");
-            System.out.println("✅ Weather scheduler started - updates every 2 hours");
-            System.out.println("✅ Stock scheduler started - hourly updates during NYSE hours (9:30 AM - 4:00 PM ET, Mon-Fri)");
+            System.out.println("✅ Reminder scheduler — every 30s (with snooze + recurring support)");
+            System.out.println("✅ Weather scheduler  — every 2h");
+            System.out.println("✅ Stock scheduler    — hourly during NYSE hours + price alerts");
+            System.out.println("✅ Digest scheduler   — daily at 8 AM");
         } catch (TelegramApiException e) {
             e.printStackTrace();
         }

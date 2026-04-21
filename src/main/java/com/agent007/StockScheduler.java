@@ -2,10 +2,13 @@ package com.agent007;
 
 import java.time.ZonedDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class StockScheduler {
     private final StockService stockService;
@@ -15,7 +18,8 @@ public class StockScheduler {
     private final ScheduledExecutorService scheduler;
     private int lastHourSent = -1;
 
-    public StockScheduler(StockService stockService, TaskManager taskManager, UserPreferences userPrefs, Agent007Bot bot) {
+    public StockScheduler(StockService stockService, TaskManager taskManager,
+                          UserPreferences userPrefs, Agent007Bot bot) {
         this.stockService = stockService;
         this.taskManager = taskManager;
         this.userPrefs = userPrefs;
@@ -24,10 +28,10 @@ public class StockScheduler {
     }
 
     public void start() {
-        // Check every 5 minutes during market hours
         scheduler.scheduleAtFixedRate(() -> {
             try {
                 checkAndSendStockUpdates();
+                checkPriceAlerts();
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -35,42 +39,66 @@ public class StockScheduler {
     }
 
     private void checkAndSendStockUpdates() {
-        if (!stockService.isMarketOpen()) {
-            return; // Market is closed
-        }
+        if (!stockService.isMarketOpen()) return;
 
         ZonedDateTime now = ZonedDateTime.now(ZoneId.of("America/New_York"));
         int currentHour = now.getHour();
 
-        // Send update on the hour (if we haven't sent this hour yet)
         if (currentHour != lastHourSent && now.getMinute() < 5) {
             System.out.println("[STOCK SCHEDULER] Sending hourly stock updates...");
-            
-            List<String> chatIds = userPrefs.getAllChatIdsWithWeatherEnabled(); // Reuse this for active users
-            
-            for (String chatId : chatIds) {
+            String timeStr = now.format(DateTimeFormatter.ofPattern("h:mm a"));
+
+            for (String chatId : userPrefs.getAllChatIdsWithWeatherEnabled()) {
                 List<String> symbols = taskManager.getStocks(chatId);
-                
-                if (symbols.isEmpty()) {
-                    continue;
-                }
-                
+                if (symbols.isEmpty()) continue;
+
                 String stockReport = stockService.getMultipleStocks(symbols);
-                String message = String.format("""
-                    📊 Hourly Stock Market Update
-                    %s ET
-                    
+                bot.sendMessagePublic(chatId, String.format("""
+                    📊 Hourly Stock Update — %s ET
+
                     %s
-                    
                     💼 Happy trading!
-                    """, now.format(java.time.format.DateTimeFormatter.ofPattern("h:mm a")), stockReport);
-                
-                bot.sendMessagePublic(chatId, message);
-                System.out.println("[STOCK] Sent hourly update to " + chatId);
+                    """, timeStr, stockReport));
             }
-            
             lastHourSent = currentHour;
         }
+    }
+
+    private void checkPriceAlerts() {
+        if (!stockService.isMarketOpen()) return;
+
+        List<TaskManager.StockAlert> alerts = taskManager.getAllActiveAlerts();
+        for (TaskManager.StockAlert alert : alerts) {
+            double currentPrice = fetchPrice(alert.symbol);
+            if (currentPrice <= 0) continue;
+
+            boolean triggered = switch (alert.direction) {
+                case "above" -> currentPrice >= alert.targetPrice;
+                case "below" -> currentPrice <= alert.targetPrice;
+                default -> false;
+            };
+
+            if (triggered) {
+                taskManager.markAlertTriggered(alert.id);
+                bot.sendMessagePublic(alert.chatId, String.format(
+                        "🔔 Price Alert! %s is now $%.2f (%s your target of $%.2f)",
+                        alert.symbol, currentPrice, alert.direction, alert.targetPrice));
+                System.out.println("[ALERT FIRED] " + alert.symbol + " " + alert.direction + " " + alert.targetPrice);
+            }
+        }
+    }
+
+    private double fetchPrice(String symbol) {
+        String quote = stockService.getStockQuote(symbol);
+        // Quote format: "📈 NVDA: $150.23 +1.50 (+1.01%)"
+        Pattern p = Pattern.compile("\\$([\\d.]+)");
+        Matcher m = p.matcher(quote);
+        if (m.find()) {
+            try {
+                return Double.parseDouble(m.group(1));
+            } catch (NumberFormatException ignored) {}
+        }
+        return -1;
     }
 
     public void stop() {
