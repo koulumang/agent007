@@ -4,9 +4,12 @@ import java.time.ZonedDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -16,6 +19,7 @@ public class StockScheduler {
     private final UserPreferences userPrefs;
     private final Agent007Bot bot;
     private final ScheduledExecutorService scheduler;
+    private final ExecutorService taskExecutor;
     private int lastHourSent = -1;
 
     public StockScheduler(StockService stockService, TaskManager taskManager,
@@ -25,13 +29,27 @@ public class StockScheduler {
         this.userPrefs = userPrefs;
         this.bot = bot;
         this.scheduler = Executors.newScheduledThreadPool(1);
+        this.taskExecutor = Executors.newCachedThreadPool();
     }
 
     public void start() {
         scheduler.scheduleAtFixedRate(() -> {
+            Future<?> stockFuture = taskExecutor.submit(() -> checkAndSendStockUpdates());
             try {
-                checkAndSendStockUpdates();
-                checkPriceAlerts();
+                stockFuture.get(10, TimeUnit.SECONDS);
+            } catch (TimeoutException e) {
+                stockFuture.cancel(true);
+                System.err.println("[STOCK SCHEDULER] checkAndSendStockUpdates timed out after 10s");
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
+            Future<?> alertFuture = taskExecutor.submit(() -> checkPriceAlerts());
+            try {
+                alertFuture.get(10, TimeUnit.SECONDS);
+            } catch (TimeoutException e) {
+                alertFuture.cancel(true);
+                System.err.println("[STOCK SCHEDULER] checkPriceAlerts timed out after 10s");
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -103,5 +121,6 @@ public class StockScheduler {
 
     public void stop() {
         scheduler.shutdown();
+        taskExecutor.shutdown();
     }
 }

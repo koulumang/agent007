@@ -62,14 +62,22 @@ public class MemoryStore {
     }
 
     public void saveMessage(String chatId, String role, String content) {
-        try (PreparedStatement stmt = getConn().prepareStatement(
-                "INSERT INTO messages (chat_id, role, content) VALUES (?, ?, ?)")) {
-            stmt.setString(1, chatId);
-            stmt.setString(2, role);
-            stmt.setString(3, content);
-            stmt.executeUpdate();
+        Connection c = getConn();
+        try {
+            c.setAutoCommit(false);
+            try (PreparedStatement stmt = c.prepareStatement(
+                    "INSERT INTO messages (chat_id, role, content) VALUES (?, ?, ?)")) {
+                stmt.setString(1, chatId);
+                stmt.setString(2, role);
+                stmt.setString(3, content);
+                stmt.executeUpdate();
+            }
+            c.commit();
         } catch (SQLException e) {
+            try { c.rollback(); } catch (SQLException rb) { rb.printStackTrace(); }
             e.printStackTrace();
+        } finally {
+            try { c.setAutoCommit(true); } catch (SQLException fa) { fa.printStackTrace(); }
         }
     }
 
